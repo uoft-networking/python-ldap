@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "pypy3.10"]
-        os: ["ubuntu-latest", "macos-latest", "self-hosted"]
+        python-version: ["cp310", "cp311", "pp310"]
+        os: ["ubuntu-latest", "macos-latest"]
     steps:
       - name: Checkout
         uses: "actions/checkout@v3"
@@ -27,17 +27,27 @@ jobs:
       - name: Disable AppArmor
         run: sudo aa-disable /usr/sbin/slapd
         if: runner.os == 'Linux'
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - name: Set up QEMU for multi-arch build
+        # Check https://github.com/docker/setup-qemu-action for newer versions.
+        uses: docker/setup-qemu-action@v2
+        if: runner.os == 'Linux'
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: "Install Python dependencies"
-        run: |
-          set -xe
-          python -V
-          python -m pip install --upgrade pip setuptools build
-      - name: "build python-ldap ${{ matrix.python-version }}"
-        run: "python -m build"
+          # Note: 6.2.0 is buggy: make sure to avoid it.
+          # See https://github.com/pypa/cibuildwheel/issues/1250
+          image: tonistiigi/binfmt:qemu-v7.0.0
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.14.1
+        env:
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_I686_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_PPC64LE_IMAGE: manylinux2014
+          CIBW_BUILD: ${{matrix.python-version}}-*
+          CIBW_ARCHS_LINUX: x86_64 aarch64
+          CIBW_ARCHS_MACOS: x86_64 arm64 universal2
+          CIBW_BEFORE_ALL_LINUX: >-
+            sudo apt update
+            && sudo apt install -y ldap-utils slapd enchant-2 libldap2-dev libsasl2-dev apparmor-utils
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v3
         with:
